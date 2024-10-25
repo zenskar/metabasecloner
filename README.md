@@ -1,3 +1,5 @@
+Patched repo with new api and working dashboards and collection.
+
 A quick script to clone Metabase questions from one database to another in collections.  Usage:
 
 ```
