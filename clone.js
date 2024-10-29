@@ -102,6 +102,8 @@ async function cloneCollection(api, params) {
   console.log("Cloning collection ID " + params.id);
   try {
     var collectionItems = await api.getCollectionItems(params.id);
+    collectionItems = collectionItems.data
+    console.log(collectionItems)
     for (var i = 0; i < collectionItems.length; i++) {
       if (collectionItems[i].model === 'card') {
         cloneQuestion(api, {
@@ -145,6 +147,7 @@ async function cloneDashboard(api, params) {
 
     // get source dashboard
     var dashboard = await api.getDashboard(params.id);
+    console.log('Start Point dashcards', dashboard.dashcards)
     var newDashboard = {
       name: dashboard.name,
       description: dashboard.description,
@@ -153,37 +156,92 @@ async function cloneDashboard(api, params) {
     }
     var savedDashboard = await api.postDashboard(newDashboard);
 
+    const tabs = dashboard.tabs.map(tab => {
+      return {
+        id: savedDashboard.id + tab.id,
+        name: tab.name,
+        //dashboard_id: savedDashboard.id,
+        //position: tab.position
+      }
+    })
+
+    const textCards = dashboard.dashcards.filter(card => card.card_id === null)
+
+    const addedTabs = await api.postDashboardTabs(savedDashboard.id, tabs)
+    //console.log('addedTabs', addedTabs)
+
     // Find questions in target DB with same names, create dashboard cards
     var dbItems = await api.getCollectionItems(params.targetCollection); 
+    dashboard.ordered_cards = dashboard.dashcards;
+    // console.log(dashboard, dbItems, params.targetCollection, 'cat')
     var newCards = [];
-    for (var i = 0; i < dashboard.ordered_cards.length; i++) {
-      var cardDef = dashboard.ordered_cards[i];
+    for (var i = 0; i < dashboard.dashcards.length; i++) {
+      var cardDef = dashboard.dashcards[i];
       var card = cardDef.card;
-      var parameter_mappings = dashboard.ordered_cards[i].parameter_mappings;
-      var targetCard = findCard(card.name, dbItems);
+      var parameter_mappings = dashboard.dashcards[i].parameter_mappings;
+       //console.log('CheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheck', dbItems)
+      var targetCard = findCard(card.name, dbItems.data);
+      // console.log(targetCard)
       if (!targetCard) {
-        throw "Unable to find target card " + card.name;
-      }
+        // throw "Unable to find target card " + card.name;
+      } else {
+
       for (var p = 0; p < parameter_mappings.length; p++) {
         parameter_mappings[p].card_id = targetCard.id;
       }
+      //console.log('cardDef ----------------------------------------------------------------------------------------' , cardDef)
       newCards.push({
         id: savedDashboard.id,
-        cardId: targetCard.id,
-        sizeX: cardDef.sizeX,
-        sizeY: cardDef.sizeY,
+        card_id: targetCard.id,
+        size_x: cardDef.size_x,
+        size_y: cardDef.size_y,
         row: cardDef.row,
         col: cardDef.col,
         series: cardDef.series,
-        parameter_mappings: parameter_mappings
+        parameter_mappings: parameter_mappings,
+        visualization_settings: cardDef.visualization_settings,
+        dashboard_tab_id: cardDef.dashboard_tab_id == 14 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
       });
+
+      console.log(cardDef.dashboard_tab_id)
     }
+    }
+
+    for(var i = 0; i < textCards.length; i++){
+      var cardDef = textCards[i];
+      console.log('New Card Def', cardDef)
+
+      newCards.push({
+        id: savedDashboard.id,
+        //card_id: cardDef.id,
+        size_x: cardDef.size_x,
+        size_y: cardDef.size_y,
+        row: cardDef.row,
+        col: cardDef.col,
+        series: cardDef.series,
+        visualization_settings: cardDef.visualization_settings,
+        dashboard_tab_id: cardDef.dashboard_tab_id == 14 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
+      });
+      console.log()
+    }
+
+    //console.log(dashboard.tabs) 
+
+    console.log(dashboard.tabs)
+
+    console.log("Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs ", tabs)
+
+    //console.log(tabs)
    
     // and put cards to dashboard
     for (var c = 0; c < newCards.length; c++) {
-      var cardToSave = newCards[c];
-      var savedCard = await api.postDashboardCard(savedDashboard.id, cardToSave);
-      console.log("Saved card " + savedCard.id);
+      //console.log(newCards.length)
+      if (newCards[c]) {
+        //console.log(newCards[c], 'cat')
+        var cardToSave = newCards[c];
+        var savedCard = await api.postDashboardCard(savedDashboard.id, cardToSave);
+        //console.log("Saved card " + savedCard.id);
+      }
     }
   } catch(e) {
     console.error(e);
@@ -250,11 +308,10 @@ function toTargetTemplateTags(template_tags, old_fields, target_fields) {
 
 function findCard(name, items) {
   for (var i = 0; i < items.length; i++) {
-    if (items[i].model === 'card' && items[i].name === name) {
+    if (items[i].model !== 'dashboard' && items[i].name === name) {
       return items[i];
     }
   }
   return null;
 }
-
 
