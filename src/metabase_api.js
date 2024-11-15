@@ -192,6 +192,23 @@ module.exports = function(params) {
         });
       });
     },
+    
+    getTables: function() {
+      var args = {
+        headers: headers(),
+        path: {host: host}
+      };
+      return new Promise(function(resolve, reject) {
+        var path = `https://${host}/api/table`;
+        client.get(path, args, function(data, response) {
+          if (response.statusCode != 200) {
+            reject(response.statusMessage);
+          } else {
+            resolve(data);
+          }
+        });
+      });
+    },
 
     postDashboardCard: function(id, card) {
   var args = {
@@ -239,4 +256,3 @@ module.exports = function(params) {
   return def;
 
 }
-

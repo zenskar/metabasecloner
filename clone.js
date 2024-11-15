@@ -122,13 +122,11 @@ async function cloneQuestion(api, params) {
   console.log("Cloning question ID " + params.id);
   try {
     var question = await api.getQuestion(params.id);
-    // console.log('oldQuestion', JSON.stringify(question));
     var sourceFields = await api.getFields(question.database_id);
     var targetFields = await api.getFields(params.targetDB);
 
-    var newQuestion = questionPropertiesTo(question, sourceFields, targetFields, 
+    var newQuestion = await questionPropertiesTo(api, question, sourceFields, targetFields, 
       params.targetDB, params.targetCollection);
-    // console.log('newQuestion', newQuestion)
     var result = api.postQuestion(newQuestion);
   } catch(e) {
     console.error("Error cloning question ID " + params.id, e);
@@ -159,35 +157,35 @@ async function cloneDashboard(api, params) {
     const tabs = dashboard.tabs.map(tab => {
       return {
         id: savedDashboard.id + tab.id,
-        name: tab.name,
-        //dashboard_id: savedDashboard.id,
-        //position: tab.position
+        name: tab.name
       }
     })
 
     const textCards = dashboard.dashcards.filter(card => card.card_id === null)
 
     const addedTabs = await api.postDashboardTabs(savedDashboard.id, tabs)
-    //console.log('addedTabs', addedTabs)
 
     // Find questions in target DB with same names, create dashboard cards
     var dbItems = await api.getCollectionItems(params.targetCollection); 
     dashboard.ordered_cards = dashboard.dashcards;
-    // console.log(dashboard, dbItems, params.targetCollection, 'cat')
     var newCards = [];
     for (var i = 0; i < dashboard.dashcards.length; i++) {
       var cardDef = dashboard.dashcards[i];
       var card = cardDef.card;
       var parameter_mappings = dashboard.dashcards[i].parameter_mappings;
-       //console.log('CheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheckCheck', dbItems)
       var targetCard = findCard(card.name, dbItems.data);
-      // console.log(targetCard)
+
       if (!targetCard) {
         // throw "Unable to find target card " + card.name;
       } else {
 
       for (var p = 0; p < parameter_mappings.length; p++) {
         parameter_mappings[p].card_id = targetCard.id;
+          if (parameter_mappings[p]?.target.length > 0) {
+            var sourceFields = await api.getFields(card.database_id);
+            var targetFields = await api.getFields(targetDB);
+            parameter_mappings[p].target = mapFieldIds(parameter_mappings[p].target, sourceFields, targetFields);
+          }
       }
       //console.log('cardDef ----------------------------------------------------------------------------------------' , cardDef)
       newCards.push({
@@ -200,7 +198,7 @@ async function cloneDashboard(api, params) {
         series: cardDef.series,
         parameter_mappings: parameter_mappings,
         visualization_settings: cardDef.visualization_settings,
-        dashboard_tab_id: cardDef.dashboard_tab_id == 14 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
+        dashboard_tab_id: cardDef.dashboard_tab_id == 28 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
       });
 
       console.log(cardDef.dashboard_tab_id)
@@ -220,27 +218,18 @@ async function cloneDashboard(api, params) {
         col: cardDef.col,
         series: cardDef.series,
         visualization_settings: cardDef.visualization_settings,
-        dashboard_tab_id: cardDef.dashboard_tab_id == 14 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
+        dashboard_tab_id: cardDef.dashboard_tab_id == 28 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
       });
       console.log()
     }
 
-    //console.log(dashboard.tabs) 
-
     console.log(dashboard.tabs)
-
-    console.log("Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs Tabs ", tabs)
-
-    //console.log(tabs)
    
     // and put cards to dashboard
     for (var c = 0; c < newCards.length; c++) {
-      //console.log(newCards.length)
       if (newCards[c]) {
-        //console.log(newCards[c], 'cat')
         var cardToSave = newCards[c];
         var savedCard = await api.postDashboardCard(savedDashboard.id, cardToSave);
-        //console.log("Saved card " + savedCard.id);
       }
     }
   } catch(e) {
@@ -248,8 +237,93 @@ async function cloneDashboard(api, params) {
   }
 }
 
+function mapTableId(tableId, allTables, targetDbId) {
+    // Find the source table by its table_id
+    const sourceTable = allTables.find(table => table.id == tableId);
+    
+    if (!sourceTable) {
+        throw new Error(`Source table with table_id not found`);
+    }
 
-function questionPropertiesTo(original, source_fields, target_fields, 
+    // Find the corresponding target table with the same name, but in a different database
+    const targetTable = allTables.find(table => table.name == sourceTable.name && table.db_id == targetDbId);
+
+    if (!targetTable) {
+        throw new Error(`Target table for not found in a different database.`);
+    }
+
+    // Return the target table_id
+    return targetTable.id;
+}
+
+function findFieldById(fieldsArray, fieldId) {
+  return fieldsArray.find(field => field.id == fieldId)
+}
+
+//[
+//    {
+//        "id": 3317,
+//        "name": "quantity",
+//        "display_name": "Quantity",
+//        "base_type": "type/Float",
+//        "semantic_type": null,
+//        "table_name": "entitlement_deductions",
+//        "schema": "badd819e_8fd3_41a5_819d_053762db8fac"
+//    }]
+
+function findFieldByName(fieldsArray, fieldName, tableName) {
+  return fieldsArray.find(field => field.name == fieldName && field.table_name == tableName)
+}
+
+function mapFieldIds(fieldRefs, source_fields, target_fields) {
+  return fieldRefs.map(fieldRef => {
+    if (fieldRef[0] === 'field' && fieldRef[1]) {
+      // Field reference: Map the field ID
+      const fieldId = fieldRef[1];
+      const sourceField = findFieldById(source_fields, fieldId);  // Find field in source table
+      if (sourceField) {
+        // Find corresponding field in target table
+        const targetField = findFieldByName(target_fields, sourceField.name, sourceField.table_name);
+        if (targetField) {
+          // Map fieldRef to target field ID
+          fieldRef[1] = targetField.id;
+        }
+      }
+    } else if (Array.isArray(fieldRef)) {
+      // Recursively map nested conditions inside logical operators like 'and', 'or', '='
+      // For example, "and", ["=", ["field", 410], 2]
+      fieldRef = mapFieldIds(fieldRef, source_fields, target_fields);
+    }
+    return fieldRef;
+  });
+}
+
+// Function to recursively map expressions
+function mapExpressions(expressions, source_fields, target_fields) {
+  const mappedExpressions = {};
+
+  Object.keys(expressions).forEach(expressionKey => {
+    let expression = expressions[expressionKey];
+
+    if (Array.isArray(expression)) {
+      // Map the expression if it contains field references
+      expression = expression.map(item => {
+        if (Array.isArray(item)) {
+          // If it's an array, it could be a field reference, so map it
+          return mapFieldIds(item, source_fields, target_fields);
+        }
+        return item;
+      });
+    }
+
+    // After mapping all nested items, assign it back to the expression
+    mappedExpressions[expressionKey] = expression;
+  });
+
+  return mappedExpressions;
+}
+
+async function questionPropertiesTo(api, original, source_fields, target_fields, 
     database_id, collection_id) {
 
   var dataset_query = merge(original.dataset_query, {database: database_id});
@@ -257,12 +331,56 @@ function questionPropertiesTo(original, source_fields, target_fields,
     dataset_query.native['template-tags'] = toTargetTemplateTags(
       dataset_query.native['template-tags'], source_fields, target_fields);
   }
+
+  var tables = await api.getTables();
+
+  const queryTargetTableId = mapTableId(dataset_query.query['source-table'], tables, database_id);
+  // Handle joins (if any)
+  if (dataset_query?.query?.joins) {
+    for (let join of dataset_query.query.joins) {
+      // Map each join's source-table to the corresponding target table
+      const joinSourceTableId = mapTableId(join['source-table'], tables, database_id);
+      join['source-table'] = joinSourceTableId;
+
+      if(join?.condition?.length > 0){
+        join['condition'] = mapFieldIds(join['condition'], source_fields, target_fields);
+      }
+    }
+ 
+  }
+
+  dataset_query.query['source-table'] = queryTargetTableId;
+
+    // Map field IDs in the query (aggregation, breakout, filter)
+  if (dataset_query?.query?.aggregation) {
+    dataset_query.query.aggregation = mapFieldIds(dataset_query.query.aggregation, source_fields, target_fields);
+  }
+
+  if (dataset_query?.query?.breakout) {
+    dataset_query.query.breakout = mapFieldIds(dataset_query.query.breakout, source_fields, target_fields);
+  }
+
+  if (dataset_query?.query['order-by']) {
+    dataset_query.query['order-by'] = mapFieldIds(dataset_query.query['order-by'], source_fields, target_fields);
+  }
+
+  if (dataset_query?.query?.filter) {
+    dataset_query.query.filter = mapFieldIds(dataset_query.query.filter, source_fields, target_fields);
+  }
+
+  // Handle expressions field mapping
+  if (dataset_query?.query?.expressions) {
+    dataset_query.query.expressions = mapExpressions(dataset_query.query.expressions, source_fields, target_fields);
+  }
+
   return {
     name: original.name,
     query_type: original.query_type,
     description: original.description,
     database_id: database_id,
+    table_id: queryTargetTableId,
     collection_id: collection_id,
+    result_metadata: original.result_metadata,
     dataset_query: dataset_query,
     display: original.display,
     visualization_settings: original.visualization_settings
@@ -314,4 +432,3 @@ function findCard(name, items) {
   }
   return null;
 }
-
