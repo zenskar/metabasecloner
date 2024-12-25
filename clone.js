@@ -48,25 +48,25 @@ if (!sessionId) {
   prompt.start();
   prompt.get({properties: 
     {password: {hidden: true, message: "Metabase password", required: true}}}, 
-  function (err, result) {
-    var api = require('./src/metabase_api')({
-      host: host,
-      user: user,
-      password: result.password
-    });
-    console.log("Connecting to '" + host + "'");
+    function (err, result) {
+      var api = require('./src/metabase_api')({
+        host: host,
+        user: user,
+        password: result.password
+      });
+      console.log("Connecting to '" + host + "'");
 
-    if (sessionId) {
-      doClone(api, {type: type, id: id, targetDB: targetDB, 
-        targetCollection: targetCollection});
-    } else {
-      api.login().then(function() {
+      if (sessionId) {
         doClone(api, {type: type, id: id, targetDB: targetDB, 
           targetCollection: targetCollection});
-      }).catch(console.error);
-    }
-  });
-// Or use supplied session
+      } else {
+        api.login().then(function() {
+          doClone(api, {type: type, id: id, targetDB: targetDB, 
+            targetCollection: targetCollection});
+        }).catch(console.error);
+      }
+    });
+  // Or use supplied session
 } else {
   var api = require('./src/metabase_api')({
     host: host,
@@ -163,7 +163,13 @@ async function cloneDashboard(api, params) {
 
     const textCards = dashboard.dashcards.filter(card => card.card_id === null)
 
-    const addedTabs = await api.postDashboardTabs(savedDashboard.id, tabs)
+    const addedTabs = await api.postDashboardTabs(savedDashboard.id, tabs);
+
+    // Create a map for quick lookup of old tab IDs to new tab IDs
+    const tabIdMap = dashboard.tabs.reduce((map, tab, index) => {
+      map[tab.id] = addedTabs.tabs[index].id; // Map old tab ID to new tab ID based on index
+      return map;
+    }, {});
 
     // Find questions in target DB with same names, create dashboard cards
     var dbItems = await api.getCollectionItems(params.targetCollection); 
@@ -175,62 +181,66 @@ async function cloneDashboard(api, params) {
       var parameter_mappings = dashboard.dashcards[i].parameter_mappings;
       var targetCard = findCard(card.name, dbItems.data);
 
-      if (!targetCard) {
+      if (!targetCard?.id) {
         // throw "Unable to find target card " + card.name;
       } else {
 
-      for (var p = 0; p < parameter_mappings.length; p++) {
-        parameter_mappings[p].card_id = targetCard.id;
+        for (var p = 0; p < parameter_mappings.length; p++) {
+          parameter_mappings[p].card_id = targetCard.id;
           if (parameter_mappings[p]?.target.length > 0) {
             var sourceFields = await api.getFields(card.database_id);
             var targetFields = await api.getFields(targetDB);
             parameter_mappings[p].target = mapFieldIds(parameter_mappings[p].target, sourceFields, targetFields);
           }
-      }
-      //console.log('cardDef ----------------------------------------------------------------------------------------' , cardDef)
-      newCards.push({
-        id: savedDashboard.id,
-        card_id: targetCard.id,
-        size_x: cardDef.size_x,
-        size_y: cardDef.size_y,
-        row: cardDef.row,
-        col: cardDef.col,
-        series: cardDef.series,
-        parameter_mappings: parameter_mappings,
-        visualization_settings: cardDef.visualization_settings,
-        dashboard_tab_id: cardDef.dashboard_tab_id == 28 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
-      });
+        }
 
-      console.log(cardDef.dashboard_tab_id)
-    }
+        // Get the old tab ID from the card and map it to the new tab ID using the tabIdMap
+        const oldTabId = cardDef.dashboard_tab_id; // Get the old tab ID from the card
+        const newTabId = tabIdMap[oldTabId] || ( addedTabs?.tabs[0]?.id ? addedTabs?.tabs[0]?.id : null); // Default to the first tab if no match
+
+        //console.log('cardDef ----------------------------------------------------------------------------------------' , cardDef)
+        newCards.push({
+          id: savedDashboard.id,
+          card_id: targetCard.id,
+          size_x: cardDef.size_x,
+          size_y: cardDef.size_y,
+          row: cardDef.row,
+          col: cardDef.col,
+          series: cardDef.series,
+          parameter_mappings: parameter_mappings,
+          visualization_settings: cardDef.visualization_settings,
+          dashboard_tab_id: newTabId
+        });
+      }
     }
 
     for(var i = 0; i < textCards.length; i++){
       var cardDef = textCards[i];
       console.log('New Card Def', cardDef)
 
+      // Get the old tab ID from the text card and map it to the new tab ID using the tabIdMap
+      const oldTabId = cardDef.dashboard_tab_id; // Get the old tab ID from the text card
+      const newTabId = tabIdMap[oldTabId] || addedTabs.tabs[0].id; // Default to the first tab if no match
+
       newCards.push({
         id: savedDashboard.id,
-        //card_id: cardDef.id,
         size_x: cardDef.size_x,
         size_y: cardDef.size_y,
         row: cardDef.row,
         col: cardDef.col,
         series: cardDef.series,
         visualization_settings: cardDef.visualization_settings,
-        dashboard_tab_id: cardDef.dashboard_tab_id == 28 ? addedTabs.tabs[0].id : addedTabs.tabs[1].id
+        dashboard_tab_id: newTabId
       });
-      console.log()
     }
 
-    console.log(dashboard.tabs)
-   
     // and put cards to dashboard
     for (var c = 0; c < newCards.length; c++) {
       if (newCards[c]) {
         var cardToSave = newCards[c];
         var savedCard = await api.postDashboardCard(savedDashboard.id, cardToSave);
       }
+      console.log(`Done ${c+1} of ${newCards.length}`)
     }
   } catch(e) {
     console.error(e);
@@ -238,22 +248,22 @@ async function cloneDashboard(api, params) {
 }
 
 function mapTableId(tableId, allTables, targetDbId) {
-    // Find the source table by its table_id
-    const sourceTable = allTables.find(table => table.id == tableId);
-    
-    if (!sourceTable) {
-        throw new Error(`Source table with table_id not found`);
-    }
+  // Find the source table by its table_id
+  const sourceTable = allTables.find(table => table.id == tableId);
 
-    // Find the corresponding target table with the same name, but in a different database
-    const targetTable = allTables.find(table => table.name == sourceTable.name && table.db_id == targetDbId);
+  if (!sourceTable) {
+    throw new Error(`Source table with table_id not found`);
+  }
 
-    if (!targetTable) {
-        throw new Error(`Target table for not found in a different database.`);
-    }
+  // Find the corresponding target table with the same name, but in a different database
+  const targetTable = allTables.find(table => table.name == sourceTable.name && table.db_id == targetDbId);
 
-    // Return the target table_id
-    return targetTable.id;
+  if (!targetTable) {
+    throw new Error(`Target table for not found in a different database.`);
+  }
+
+  // Return the target table_id
+  return targetTable.id;
 }
 
 function findFieldById(fieldsArray, fieldId) {
@@ -324,7 +334,7 @@ function mapExpressions(expressions, source_fields, target_fields) {
 }
 
 async function questionPropertiesTo(api, original, source_fields, target_fields, 
-    database_id, collection_id) {
+  database_id, collection_id) {
 
   var dataset_query = merge(original.dataset_query, {database: database_id});
   if (dataset_query.type === 'native') {
@@ -334,7 +344,9 @@ async function questionPropertiesTo(api, original, source_fields, target_fields,
 
   var tables = await api.getTables();
 
-  const queryTargetTableId = mapTableId(dataset_query.query['source-table'], tables, database_id);
+  console.log(dataset_query?.query?.['source-table'], "Source Table")
+
+  const queryTargetTableId = dataset_query?.query?.['source-table'] ? mapTableId(dataset_query.query['source-table'], tables, database_id) : null;
   // Handle joins (if any)
   if (dataset_query?.query?.joins) {
     for (let join of dataset_query.query.joins) {
@@ -346,12 +358,14 @@ async function questionPropertiesTo(api, original, source_fields, target_fields,
         join['condition'] = mapFieldIds(join['condition'], source_fields, target_fields);
       }
     }
- 
+
   }
 
-  dataset_query.query['source-table'] = queryTargetTableId;
+  if(dataset_query?.query?.['source-table']){
+    dataset_query.query['source-table'] = queryTargetTableId;
+  } 
 
-    // Map field IDs in the query (aggregation, breakout, filter)
+  // Map field IDs in the query (aggregation, breakout, filter)
   if (dataset_query?.query?.aggregation) {
     dataset_query.query.aggregation = mapFieldIds(dataset_query.query.aggregation, source_fields, target_fields);
   }
@@ -360,7 +374,7 @@ async function questionPropertiesTo(api, original, source_fields, target_fields,
     dataset_query.query.breakout = mapFieldIds(dataset_query.query.breakout, source_fields, target_fields);
   }
 
-  if (dataset_query?.query['order-by']) {
+  if (dataset_query?.query?.['order-by']) {
     dataset_query.query['order-by'] = mapFieldIds(dataset_query.query['order-by'], source_fields, target_fields);
   }
 
@@ -410,7 +424,7 @@ function toTargetTemplateTags(template_tags, old_fields, target_fields) {
       var targetFieldId = null;
       for (var i = 0; i < target_fields.length; i++) {
         if (target_fields[i].name === fieldName && 
-            target_fields[i].table_name === tableName) {
+          target_fields[i].table_name === tableName) {
           targetFieldId = target_fields[i].id;
           break;
         }
