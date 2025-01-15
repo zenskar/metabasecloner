@@ -31,15 +31,29 @@ if (!id) {
   process.exit(1);
 }
 
+if (typeof id === 'string') {
+  id = id.split(','); // Split by commas to handle multiple IDs
+  console.log(id)
+}
+
 // Collection ID
 var targetCollection = (argv['c'] || argv['collection']);
 
+if(typeof targetCollection === 'string'){
+  targetCollection = targetCollection.split(',')
+  console.log(targetCollection)
+}
 
 // Target DB
 var targetDB = (argv['d'] || argv['database']);
 if (!targetDB) {
   console.log("Database ID is required");
   process.exit(1);
+}
+
+if(typeof targetDB === 'string'){
+  targetDB = targetDB.split(',')
+  console.log(targetDB)
 }
 
 // Prompt for password
@@ -121,6 +135,18 @@ async function cloneCollection(api, params) {
 async function cloneQuestion(api, params) {
   console.log("Cloning question ID " + params.id);
   try {
+    if(Array.isArray(params.id)){
+      for(var i = 0; i < params.id.length; i++){
+        var question = await api.getQuestion(params.id[i]);
+        var sourceFields = await api.getFields(question.database_id);
+        var targetFields = await api.getFields(params.targetDB);
+
+        var newQuestion = await questionPropertiesTo(api, question, sourceFields, targetFields, 
+          params.targetDB, params.targetCollection);
+        var result = api.postQuestion(newQuestion); 
+      }
+      return;
+    }
     var question = await api.getQuestion(params.id);
     var sourceFields = await api.getFields(question.database_id);
     var targetFields = await api.getFields(params.targetDB);
