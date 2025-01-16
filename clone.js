@@ -372,58 +372,126 @@ async function questionPropertiesTo(api, original, source_fields, target_fields,
 
   console.log(dataset_query?.query?.['source-table'], "Source Table")
 
-  const queryTargetTableId = dataset_query?.query?.['source-table'] ? mapTableId(dataset_query.query['source-table'], tables, database_id) : null;
-  // Handle joins (if any)
-  if (dataset_query?.query?.joins) {
-    for (let join of dataset_query.query.joins) {
-      // Map each join's source-table to the corresponding target table
-      const joinSourceTableId = mapTableId(join['source-table'], tables, database_id);
-      join['source-table'] = joinSourceTableId;
+  if(dataset_query?.query?.['source-table']){
 
-      if(join?.condition?.length > 0){
-        join['condition'] = mapFieldIds(join['condition'], source_fields, target_fields);
+    const queryTargetTableId = dataset_query?.query?.['source-table'] ? mapTableId(dataset_query.query['source-table'], tables, database_id) : null;
+    // Handle joins (if any)
+    if (dataset_query?.query?.joins) {
+      for (let join of dataset_query.query.joins) {
+        // Map each join's source-table to the corresponding target table
+        const joinSourceTableId = mapTableId(join['source-table'], tables, database_id);
+        join['source-table'] = joinSourceTableId;
+
+        if(join?.condition?.length > 0){
+          join['condition'] = mapFieldIds(join['condition'], source_fields, target_fields);
+        }
       }
+
     }
 
-  }
+    if(dataset_query?.query?.['source-table']){
+      dataset_query.query['source-table'] = queryTargetTableId;
+    } 
 
-  if(dataset_query?.query?.['source-table']){
-    dataset_query.query['source-table'] = queryTargetTableId;
-  } 
+    // Map field IDs in the query (aggregation, breakout, filter)
+    if (dataset_query?.query?.aggregation) {
+      dataset_query.query.aggregation = mapFieldIds(dataset_query.query.aggregation, source_fields, target_fields);
+    }
 
-  // Map field IDs in the query (aggregation, breakout, filter)
-  if (dataset_query?.query?.aggregation) {
-    dataset_query.query.aggregation = mapFieldIds(dataset_query.query.aggregation, source_fields, target_fields);
-  }
+    if (dataset_query?.query?.breakout) {
+      dataset_query.query.breakout = mapFieldIds(dataset_query.query.breakout, source_fields, target_fields);
+    }
 
-  if (dataset_query?.query?.breakout) {
-    dataset_query.query.breakout = mapFieldIds(dataset_query.query.breakout, source_fields, target_fields);
-  }
+    if (dataset_query?.query?.['order-by']) {
+      dataset_query.query['order-by'] = mapFieldIds(dataset_query.query['order-by'], source_fields, target_fields);
+    }
 
-  if (dataset_query?.query?.['order-by']) {
-    dataset_query.query['order-by'] = mapFieldIds(dataset_query.query['order-by'], source_fields, target_fields);
-  }
+    if (dataset_query?.query?.filter) {
+      dataset_query.query.filter = mapFieldIds(dataset_query.query.filter, source_fields, target_fields);
+    }
 
-  if (dataset_query?.query?.filter) {
-    dataset_query.query.filter = mapFieldIds(dataset_query.query.filter, source_fields, target_fields);
-  }
+    // Handle expressions field mapping
+    if (dataset_query?.query?.expressions) {
+      dataset_query.query.expressions = mapExpressions(dataset_query.query.expressions, source_fields, target_fields);
+    }
 
-  // Handle expressions field mapping
-  if (dataset_query?.query?.expressions) {
-    dataset_query.query.expressions = mapExpressions(dataset_query.query.expressions, source_fields, target_fields);
-  }
+    return {
+      name: original.name,
+      query_type: original.query_type,
+      description: original.description,
+      database_id: database_id,
+      table_id: queryTargetTableId,
+      collection_id: collection_id,
+      result_metadata: original.result_metadata,
+      dataset_query: dataset_query,
+      display: original.display,
+      visualization_settings: original.visualization_settings
+    }
+  } else if(dataset_query?.query?.['source-query']){
 
-  return {
-    name: original.name,
-    query_type: original.query_type,
-    description: original.description,
-    database_id: database_id,
-    table_id: queryTargetTableId,
-    collection_id: collection_id,
-    result_metadata: original.result_metadata,
-    dataset_query: dataset_query,
-    display: original.display,
-    visualization_settings: original.visualization_settings
+    const queryTargetTableId = dataset_query?.query?.['source-query']?.['source-table'] ? mapTableId(dataset_query.query['source-query']['source-table'], tables, database_id) : null;
+    // Handle joins (if any)
+    if (dataset_query?.query?.['source-query']?.joins) {
+      for (let join of dataset_query.query['source-query'].joins) {
+        // Map each join's source-table to the corresponding target table
+        const joinSourceTableId = mapTableId(join['source-table'], tables, database_id);
+        join['source-table'] = joinSourceTableId;
+
+        if(join?.condition?.length > 0){
+          join['condition'] = mapFieldIds(join['condition'], source_fields, target_fields);
+        }
+      }
+
+    }
+
+    // Map field IDs in the query (aggregation, breakout, filter)
+    if (dataset_query?.query?.aggregation) {
+      dataset_query.query.aggregation = mapFieldIds(dataset_query.query.aggregation, source_fields, target_fields);
+    }
+
+    if (dataset_query?.query?.breakout) {
+      dataset_query.query.breakout = mapFieldIds(dataset_query.query.breakout, source_fields, target_fields);
+    }
+
+    if(dataset_query?.query?.['source-query']?.['source-table']){
+      dataset_query.query['source-query']['source-table'] = queryTargetTableId;
+    } 
+
+    // Map field IDs in the query (aggregation, breakout, filter)
+    if (dataset_query?.query?.['source-query']?.aggregation) {
+      dataset_query.query['source-query'].aggregation = mapFieldIds(dataset_query.query['source-query'].aggregation, source_fields, target_fields);
+    }
+
+    if (dataset_query?.query?.['source-query']?.breakout) {
+      dataset_query.query['source-query'].breakout = mapFieldIds(dataset_query.query['source-query'].breakout, source_fields, target_fields);
+    }
+
+    if (dataset_query?.query?.['source-query']?.['order-by']) {
+      dataset_query.query['source-query']['order-by'] = mapFieldIds(dataset_query.query['source-query']['order-by'], source_fields, target_fields);
+    }
+
+    if (dataset_query?.query?.['source-query']?.filter) {
+      dataset_query.query['source-query'].filter = mapFieldIds(dataset_query.query['source-query'].filter, source_fields, target_fields);
+    }
+
+    // Handle expressions field mapping
+    if (dataset_query?.query?.['source-query']?.expressions) {
+      dataset_query.query['source-query'].expressions = mapExpressions(dataset_query.query['source-query'].expressions, source_fields, target_fields);
+    }
+
+    return {
+      name: original.name,
+      query_type: original.query_type,
+      description: original.description,
+      database_id: database_id,
+      table_id: queryTargetTableId,
+      collection_id: collection_id,
+      result_metadata: original.result_metadata,
+      dataset_query: dataset_query,
+      display: original.display,
+      visualization_settings: original.visualization_settings
+    }
+
   }
 }
 
